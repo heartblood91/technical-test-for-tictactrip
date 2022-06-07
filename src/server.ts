@@ -51,7 +51,7 @@ app.post('/api/justify', async (req, res) => {
 
   if (status_code === 200) {
     res.status(status_code)
-      .setHeader('content-type', 'text/plain')
+      .header('content-type', 'text/plain')
       .send(justify_text)
   } else {
     res.status(status_code).send()
