@@ -1,12 +1,19 @@
-import token, { DatabaseType } from './token'
-import fs from 'fs'
+import token from './token'
+import { date_util, database_util } from '../../utils'
 
-const clearTestingDatabase = async () => {
-  await fs.writeFileSync('src/databases/testing-database.json', JSON.stringify({}))
-}
+const clearAndCreateATokenInDatabase = async () => {
+  const user_token = token.create()
+  const new_database: database_util.DatabaseType = {
+    user: {
+      'me@tictactrip.fr': {
+        token: user_token,
+      }
+    }
+  }
 
-const readTestingDatabase = async () => {
-  return JSON.parse(await fs.readFileSync('src/databases/testing-database.json', 'utf-8')) as DatabaseType
+  await database_util.db.save(new_database)
+
+  return user_token
 }
 
 describe('token', () => {
@@ -35,25 +42,38 @@ describe('token', () => {
     it('should contain the today s date', () => {
       const res = token.create()
 
-      const today = new Date().toISOString().split('T')[0]
+      const today = date_util.getTodaysDate()
 
       expect(res.match(today)?.length).toEqual(1)
     })
   })
 
   describe('isValid', () => {
-    it('should return true if the token is a really good', () => {
-      const good_token = token.create()
+    let user_token =  ''
+    beforeEach(async () => {
+      user_token = await clearAndCreateATokenInDatabase()
+    })
 
-      const is_really_good = token.isValid(good_token)
+    it('should return true if the token is a really good', async () => {
+      const good_token = user_token
+
+      const is_really_good = await token.isValid(good_token)
 
       expect(is_really_good).toEqual(true)
     })
 
-    it('should return false if the token is falsified', () => {
+    it('should return false if the token is falsified', async () => {
       const bad_token = 'is-token-is-invalid'
 
-      const is_really_good = token.isValid(bad_token)
+      const is_really_good = await token.isValid(bad_token)
+
+      expect(is_really_good).toEqual(false)
+    })
+
+    it('should return false if the token is not in the database', async () => {
+      const good_token_but_not_in_database = token.create()
+
+      const is_really_good = await token.isValid(good_token_but_not_in_database)
 
       expect(is_really_good).toEqual(false)
     })
@@ -61,7 +81,7 @@ describe('token', () => {
 
   describe('save', () => {
     beforeEach(async () => {
-      await clearTestingDatabase()
+      await database_util.db.reset()
     })
 
     it('should overwrite the testing database file with my data', async () => {
@@ -69,12 +89,14 @@ describe('token', () => {
         email: 'user@email.com',
         token: 'fake_token'
       })
-      
-      const database = await readTestingDatabase()
 
-      const value_expected: DatabaseType = {
+      const database = await database_util.db.read()
+
+      const value_expected: database_util.DatabaseType = {
         user: {
-          'user@email.com': 'fake_token'
+          'user@email.com': {
+            token: 'fake_token',
+          }
         }
       }
 
@@ -91,16 +113,51 @@ describe('token', () => {
         token: 'fake_token_2'
       })
 
-      const database = await readTestingDatabase()
+      const database = await database_util.db.read()
 
-      const value_expected: DatabaseType = {
+      const value_expected: database_util.DatabaseType = {
         user: {
-          'user1@email.com': 'fake_token_1',
-          'user2@email.com': 'fake_token_2'
+          'user1@email.com': {
+            token: 'fake_token_1',
+          },
+          'user2@email.com': {
+            token: 'fake_token_2',
+          },
         }
       }
 
       expect(database).toEqual(value_expected)
+    })
+  })
+
+  describe('completeQuery', () => {
+    describe('if the email is valid', () => {
+      it('should return the user token with status code 200', async () => {
+        const valid_email = 'cedric@hire.me'
+
+        const {
+          status_code,
+          user_token,
+        } = await token.completeQuery(valid_email)
+
+        expect(status_code).toEqual(200)
+        expect(user_token).not.toEqual('')
+        expect(user_token).not.toEqual(undefined)
+      })
+    })
+
+    describe('if the email is NOT valid', () => {
+      it('should return the status code 400', async () => {
+        const very_wrong_email = 'another_candidate'
+
+        const {
+          status_code,
+          user_token,
+        } = await token.completeQuery(very_wrong_email)
+
+        expect(status_code).toEqual(400)
+        expect(user_token).toEqual(undefined)
+      })
     })
   })
 })

@@ -4,7 +4,7 @@
   "description": "Give me a text, I send it back to you to justify",
   "main": "index.js",
   "scripts": {
-    "test": "export NODE_ENV=test && jest",
+    "test": "export NODE_ENV=test && jest --runInBand",
     "coverage": "jest --coverage",
     "build": "tsc",
     "watch": "concurrently --kill-others npm:watch-*",
@@ -31,8 +31,7 @@
   },
   "nodemonConfig": {
     "ignore": [
-      "src/databases/database.json",
-      "src/databases/testing-database.json"
+      "src/databases/database.json"
     ]
   }
 }

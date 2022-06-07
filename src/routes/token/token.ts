@@ -1,20 +1,23 @@
-import fs from 'fs'
-import { email_util } from '../../utils'
+import {
+  date_util,
+  database_util,
+  email_util,
+} from '../../utils'
 
 type TokenType = {
   create: () => string,
-  isValid: (token: string) => boolean,
-  save: ({email, token}: {email: string, token: string}) => Promise<void>,
+  isValid: (token: string) => Promise<boolean>,
+  save: ({ email, token }: { email: string, token: string }) => Promise<void>,
+  getEmailFromToken: (token: string) => Promise<string>,
+  completeQuery: (email: string) => Promise<{ status_code: number, user_token?: string }>,
 }
 
-export type DatabaseType = {
-  user: Record<string, string | undefined>,
-}
 
 const token = {} as TokenType
 
 
-const genDatePart = () => new Date().toISOString().split('T')[0]
+const genDatePart = () => date_util.getTodaysDate()
+
 const genRandomCharPart = () => {
   const char_valid = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   const random_chart_size = 10
@@ -28,6 +31,16 @@ const genRandomCharPart = () => {
   }
 
   return random_chart
+}
+
+const checkIsGoodDate = (random_date: string) => {
+  const now = date_util.getTodaysDate()
+
+  if (now === random_date) {
+    return true
+  } else {
+    return false
+  }
 }
 
 const checkIsANumber = (value: string) => {
@@ -61,19 +74,35 @@ const checkRandomCharIsAGoodFormat = (random_chart: string) => {
   } else {
     return false
   }
-} 
+}
+
+const checkIfUserTokenHasBeenGeneratedByTheAPI = async (user_token: string) => {
+  const user_mail = await token.getEmailFromToken(user_token)
+
+  if (user_mail) {
+    return true
+  } else {
+    return false
+  }
+}
 
 token.create = () => `${genDatePart()}-${genRandomCharPart()}-${genRandomCharPart()}`
 
-token.isValid = (token) => {
+token.isValid = async (token) => {
   const [year, month, date, random_first_part, random_second_part] = token.split('-')
   const random_date = `${year}-${month}-${date}`
-  
+
+  const random_date_has_a_good_date = checkIsGoodDate(random_date)
   const random_data_has_a_good_format = checkRandomDataIsAGoodFormat(random_date)
   const random_first_part_has_a_good_format = checkRandomCharIsAGoodFormat(random_first_part ?? '')
   const random_second_part_has_a_good_format = checkRandomCharIsAGoodFormat(random_second_part ?? '')
+  const user_token_has_been_generated_by_the_api = await checkIfUserTokenHasBeenGeneratedByTheAPI(token)
 
-  if (random_data_has_a_good_format && random_first_part_has_a_good_format && random_second_part_has_a_good_format) {
+  if (
+    random_date_has_a_good_date && random_data_has_a_good_format &&
+    random_first_part_has_a_good_format && random_second_part_has_a_good_format &&
+    user_token_has_been_generated_by_the_api
+  ) {
     return true
   } else {
     return false
@@ -87,22 +116,53 @@ token.save = async ({
   token: string,
   email: string,
 }) => {
-  let file_url
-  if (process.env.NODE_ENV === 'test') {
-    file_url = 'src/databases/testing-database.json'
-  } else {
-    file_url = 'src/databases/database.json'
-  }
-
-  const database: DatabaseType = JSON.parse(await fs.readFileSync(file_url, 'utf-8'))
-  const new_dabase = {
+  const database = await database_util.db.read()
+  const new_database = {
     ...database,
     user: {
       ...database.user,
-      [email]: token,
+      [email]: {
+        ...database.user?.[email],
+        token,
+      },
     }
   }
-  await fs.writeFileSync(file_url, JSON.stringify(new_dabase))
+
+  await database_util.db.save(new_database)
+}
+
+token.getEmailFromToken = async (token_id) => {
+  const database = await database_util.db.read()
+
+  return Object.entries(database.user).reduce<string>((acc, [key, value]) => {
+    if (value?.token === token_id) {
+      return key
+    } else {
+      return acc
+    }
+  }, '')
+}
+
+token.completeQuery = async (email) => {
+  const is_email_valid = email_util.checkIsMailIsCorrect(email)
+
+  if (is_email_valid) {
+    const user_token = token.create()
+
+    await token.save({
+      email,
+      token: user_token,
+    })
+
+    return {
+      status_code: 200,
+      user_token,
+    }
+  } 
+
+  return {
+    status_code: 400,
+  }
 }
 
 export default token

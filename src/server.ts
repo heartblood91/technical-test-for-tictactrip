@@ -1,7 +1,13 @@
 import express from 'express'
 
-import { token } from './routes'
-import { email_util } from './utils'
+import {
+  token,
+  justifyText,
+} from './routes'
+import {
+  email_util,
+  headers_util,
+} from './utils'
 
 const app = express()
 
@@ -10,28 +16,46 @@ app.listen(3000, (): void => {
 })
 
 app.use(express.json())
+app.use(express.text())
 
 app.post('/api/token', async (req, res) => {
-  const { body, headers } = req
-  const is_email_valid = email_util.checkIsMailIsCorrect(body.email)
+  const { body } = req
 
-  if (is_email_valid) {
-    const new_token = token.create()
+  const {
+    status_code,
+    user_token,
+  } = await token.completeQuery(body.email)
 
-    if (!headers.testing_mode) {
-      await token.save({
-        email: body.email,
-        token: new_token,
-      })
-    }
-
-    res
-      .status(200)
-      .json({ token: new_token })
+  if (status_code === 200) {
+    res.status(status_code)
+      .json({ token: user_token})
       .send()
+  } else {
+    res.status(status_code).send()
+  }
+})
+
+app.post('/api/justify', async (req, res) => {
+  const { body, headers } = req
+  const text = body ?? ''
+
+  const user_token = headers_util.getOneValueOnHeader(headers.token)
+
+  const {
+    status_code,
+    justify_text,
+  } = await justifyText.completeQuery({
+    user_token,
+    text,
+  })
+
+  if (status_code === 200) {
+    res.status(status_code)
+      .setHeader('content-type', 'text/plain')
+      .send(justify_text)
+  } else {
+    res.status(status_code).send()
   }
 
-  res
-    .status(400)
-    .send()
 })
+
